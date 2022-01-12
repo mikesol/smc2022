@@ -97,8 +97,8 @@
 % To use with only one author or several with the same address
 % ---------------
 \oneauthor
-   {\firstauthor} {Affiliation1 \\ %
-     {\tt \href{mailto:author1@smcnetwork.org}{author1@smcnetwork.org}}}
+   {\firstauthor} {wags.fm \\ %
+     {\tt \href{mailto:mike@wavr.so}{mike@wavr.so}}}
 
 
 
@@ -144,7 +144,7 @@ In imperative audio programming langauges, such as the Web Audio API or PureData
 
 However, in graph-based langauges, this is more challenging. Consider, for example, the following pseudocode:
 
-\being{verbatim}
+\begin{verbatim}
 render time =
   if time < 5.0
   then sinOsc (time * 220)
@@ -160,17 +160,18 @@ We are now demanding much more of the audio engine:
 \item We want as little runtime accounting as possible, ideally precompiling an efficient kernel to minimize how much time is spent on our control thread.
 \end{itemize}
 
-As graph-based languages such as Tidal Cycles and \verb=purescript-wags= become more prevelant, it is important to maintain the helpful abstraction of graphs as a pure function of time while rigorously keeping track of active and inactive audio units with as little computational overhead as possible.
+As graph-based languages such as Tidal Cycles and PureScript Wags become more prevelant, it is important to maintain the helpful abstraction of graphs as a pure function of time while rigorously keeping track of active and inactive audio units with as little computational overhead as possible.
 
 This paper proposes a zero-cost abstraction to manage resource allocation in functional audio programming languages combining the following three techniques:
 
 \begin{enumerate}
   \item Cofree comonads, as popualrized by Edward Kimett in ??.
-  \item Existential quantification~\cite{Someone:00, Someone:09}, first introduced as a programming paradigm by Nigel Perry https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/exts/existential_quantification.html#existentially-quantified-data-constructors.
+  \item Existential quantification~\cite{Someone:00, Someone:09}, first introduced as a programming paradigm by Nigel Perry.
+  % https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/exts/existential_quantification.html#existentially-quantified-data-constructors
   \item Substructural typing, a system popularized by Rust's borrow checker and recently incorporated into GHC XX and other functional contexts.
 \end{enumerate}
 
-The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy and finally giving several real-world stress test and implementation examples using \verb=purescript-wags=.
+The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy and finally giving several real-world stress test and implementation examples using PureScript Wags.
 
 \section{Cofree comonads}
 \label{sec:cofree_comonads}
