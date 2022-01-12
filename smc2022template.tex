@@ -12,23 +12,21 @@
 
 %%%%%%%%%%%%%%%%%%%%%%%% Some useful packages %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%% See related documentation %%%%%%%%%%%%%%%%%%%%%%%%%%
-%\usepackage{amsmath} % popular packages from Am. Math. Soc. Please use the 
+%\usepackage{amsmath} % popular packages from Am. Math. Soc. Please use the
 %\usepackage{amssymb} % related math environments (split, subequation, cases,
 %\usepackage{amsfonts}% multline, etc.)
 %\usepackage{bm}      % Bold Math package, defines the command \bf{}
 %\usepackage{paralist}% extended list environments
-%%subfig.sty is the modern replacement for subfigure.sty. However, subfig.sty 
-%%requires and automatically loads caption.sty which overrides class handling 
-%%of captions. To prevent this problem, preload caption.sty with caption=false 
+%%subfig.sty is the modern replacement for subfigure.sty. However, subfig.sty
+%%requires and automatically loads caption.sty which overrides class handling
+%%of captions. To prevent this problem, preload caption.sty with caption=false
 %\usepackage[caption=false]{caption}
 %\usepackage[font=footnotesize]{subfig}
 
 
 %user defined variables
-\def\papertitle{PAPER TEMPLATE FOR SMC 2022}
-\def\firstauthor{First author}
-\def\secondauthor{Second author}
-\def\thirdauthor{Third author}
+\def\papertitle{Zero-cost abstractions to manage audio resource allocation in functional audio languages}
+\def\firstauthor{Mike Solomon}
 
 % adds the automatic
 % Saves a lot of output space in PDF... after conversion with the distiller
@@ -47,15 +45,15 @@
 \ifpdf % compiling with pdflatex
   \usepackage[pdftex,
     pdftitle={\papertitle},
-    pdfauthor={\firstauthor, \secondauthor, \thirdauthor},
+    pdfauthor={\firstauthor},
     bookmarksnumbered, % use section numbers with bookmarks
-    pdfstartview=XYZ % start with zoom=100% instead of full screen; 
+    pdfstartview=XYZ % start with zoom=100% instead of full screen;
                      % especially useful if working with a big screen :-)
    ]{hyperref}
   %\pdfcompresslevel=9
 
   \usepackage[pdftex]{graphicx}
-  % declare the path(s) where your graphic files are and their extensions so 
+  % declare the path(s) where your graphic files are and their extensions so
   %you won't have to specify these with every instance of \includegraphics
   \graphicspath{{./figures/}}
   \DeclareGraphicsExtensions{.pdf,.jpeg,.png}
@@ -69,7 +67,7 @@
   ]{hyperref}  % hyperrefs are active in the pdf file after conversion
 
   \usepackage[dvips]{epsfig,graphicx}
-  % declare the path(s) where your graphic files are and their extensions so 
+  % declare the path(s) where your graphic files are and their extensions so
   %you won't have to specify these with every instance of \includegraphics
   \graphicspath{{./figures/}}
   \DeclareGraphicsExtensions{.eps}
@@ -92,33 +90,16 @@
 \title{\papertitle}
 
 % Authors
-% Please note that submissions are NOT anonymous, therefore 
-% authors' names have to be VISIBLE in your manuscript. 
+% Please note that submissions are NOT anonymous, therefore
+% authors' names have to be VISIBLE in your manuscript.
 %
 % Single address
 % To use with only one author or several with the same address
 % ---------------
-%\oneauthor
-%   {\firstauthor} {Affiliation1 \\ %
-%     {\tt \href{mailto:author1@smcnetwork.org}{author1@smcnetwork.org}}}
-
-%Two addresses
-%--------------
-% \twoauthors
-%   {\firstauthor} {Affiliation1 \\ %
-%     {\tt \href{mailto:author1@smcnetwork.org}{author1@smcnetwork.org}}}
-%   {\secondauthor} {Affiliation2 \\ %
-%     {\tt \href{mailto:author2@smcnetwork.org}{author2@smcnetwork.org}}}
-
-% Three addresses
-% --------------
- \threeauthors
+\oneauthor
    {\firstauthor} {Affiliation1 \\ %
      {\tt \href{mailto:author1@smcnetwork.org}{author1@smcnetwork.org}}}
-   {\secondauthor} {Affiliation2 \\ %
-     {\tt \href{mailto:author2@smcnetwork.org}{author2@smcnetwork.org}}}
-   {\thirdauthor} { Affiliation3 \\ %
-     {\tt \href{mailto:author3@smcnetwork.org}{author3@smcnetwork.org}}}
+
 
 
 % ***************************************** the document starts here ***************
@@ -129,127 +110,101 @@
 \capstarttrue
 %
 \begin{abstract}
-The abstract should be placed at the top left column and should contain about 150-200 words.
+Audio programming languages fall into two broad categories: imperative (CSound, sclang) and functional (Faust, tidal). For the latter, the declarative and immutable nature of data and control structures are often at odds with the mutable and referentially opaque nature of audio units like oscillators and filters. Recently, languages such as Rust have simplified this task through zero-cost abstractions to manage resource allocation in otherwise functional settings. This paper applies these techniques to functional audio programming languages. In addition to correct and low-latency automatic audio memory management, we will see how these techniques allow for efficient namespacing, drastically reducing the amount of time it takes for ceratin graph traversals.
 \end{abstract}
 %
 
 \section{Introduction}\label{sec:introduction}
-This template includes all the information for formatting manuscripts for the SMC 2022 Conference.
-Please, use \LaTeX{} templates when 
-preparing your submission.
-Please follow these guidelines to give the final proceedings a professional look.
-If you have any questions, you may contact the SMC 2022 organizers.
-This template can be downloaded from the SMC 2022 web site:\\
-\url{https://smc22.grame.fr/papersubmission.html}
-
-\section{Page size and format}
-\label{sec:page_size}
-The SMC 2022 proceedings will be formatted as portrait \underline{A4-size papers (21.0~cm x 29.7~cm)}. All material on each page should fit within a rectangle of 17.2~cm x 25.2~cm, centered on the page, beginning 2.0~cm from the top of the page and ending with 2.5~cm from the bottom. The left and right margins should be 1.9~cm. The text should be in two 8.2~cm columns with a 0.8~cm gutter. All text must be in a two-column format, and justified.
-
-Papers should be between 4 and 8 pages, written in English, and not previously published. Papers must be submitted as PDF documents generated using the provided \LaTeX{} or Word templates.
-
-
-\section{Typeset Text}\label{sec:typeset_text}
-
-\subsection{Normal or Body Text}
-\label{subsec:body}
-Please use a 10~pt (point) Times font. Use sans-serif or non-proportional fonts only for special purposes, such as distinguishing source code.
-
-The first paragraph in each section should not be indented, 
-but all other paragraphs should be.
-
-\subsection{Title and Authors}
-The title is 16~pt Times, bold, caps, upper case, centered. Authors' names are centered. The lead author's name is to be listed first (left-most), and the co-authors' names after. If the addresses for all authors are the same, include the address only once, centered. If the authors have different addresses, put the addresses, evenly spaced, under each authors' name.
-
-\subsection{First Page Copyright Notice}
-Please leave the copyright notice exactly as it appears in the lower left-hand corner of the first page. Make sure to update the first author’s name in the copyright notice, accordingly. It is set in 8~pt Times.
-
-\subsection{Page Numbering, Headers and Footers}
-Do not include headers, footers or page numbers in your submission. These will be added electronically at a later stage, when the publications are assembled.
-
-\section{Headings}
-First level headings are in Times 12~pt bold, centered with 1 line of space above the section head, and 1/2 space below it.
-For a section header immediately followed by a subsection header, the space should be merged.
-
-\subsection{Second Level Headings}
-Second level headings are in Times 10~pt bold, flush left, with 1 line of space above the section head, and 1/2 space below it. The first letter of each significant word is capitalized.
-
-\subsubsection{Third Level Headings}
-Third level headings are in Times 10~pt italic, flush left, with 1/2 line of space above the section head, and 1/2 space below it. The first letter of significant words is capitalized.
-
-Using more than three levels of headings is strongly discouraged.
-
-
-
-
-
-\section{Floats and equations}
-
-\subsection{Equations}
-Equations should be placed on separated lines and numbered. The number should be on the right side, in parentheses.
-\begin{equation}
-r=\sqrt[13]{3}
-\label{eq:BP}
-\end{equation}
-Always refer to equations like this: ``Equation (\ref{eq:BP}) is of particular interest because...''
-
-\subsection{Figures, Tables and Captions}
-\begin{table}[t]
- \begin{center}
- \begin{tabular}{|l|l|}
-  \hline
-  String value & Numeric value \\
-  \hline
-  Moin! SMC & 2022 \\
-  \hline
- \end{tabular}
-\end{center}
- \caption{Table captions should be placed below the table,  like this.}
- \label{tab:example}
-\end{table}
-
-All artwork must be centered, neat, clean and legible. Figures should be centered, neat, clean
-and completely legible. All lines should be thick and dark enough for purposes of reproduction. Artwork should not be hand-drawn. The proceedings will be distributed in electronic form only, therefore color figures are allowed. However, you may want to check that your figures are understandable even if they are printed in black-and-white.
-
-
-Numbers and captions of figures and tables always appear below the figure/table.
-Leave 1 line space between the figure or table and the caption.
-Figure and tables are numbered consecutively. 
-Captions should be Times 10pt. Place tables/figures in the text as close to the reference as possible, 
-and preferably at the top of the page.
-
-Always refer to tables and figures in the main text, for example: ``see Fig. \ref{fig:example} and \tabref{tab:example}''.
-Figures and tables may extend across both columns to a maximum width of 17.2cm.
-
-Vectorial figures are preferred, e.g., eps. When using \texttt{Matlab}, export using either (encapsulated) Postscript or PDF format. In order to optimize readability, the font size of text within a figure should be no smaller than
-that of footnotes (8~pt font-size). If you use bitmap figures, make sure that the resolution is high enough for print quality. 
+The prevailing resource-management paradigm in all modern DAWs and most visual or text-based music creation environments is to model resources as units that are connected to each other. Several examples of this are shown in \ref{fig:audio-units}.
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=0.6\columnwidth]{figure}
-\caption{Figure captions should be placed below the figure, 
-exactly like this.\label{fig:example}}
+\caption{Figure captions should be placed below the figure,
+exactly like this.\label{fig:audio-units}}
 \end{figure}
+
+% web audio example
+% max example
+% supercollider example
+
+Almost all audio units preserve some notion of state internally. For example:
+
+\begin{itemize}
+\item Waveforms remember their previous position in a lookup table so that changes in frequency do not disrupt phase.
+\item Biquad filters and delay lines need to access a certain number of input samples in the past as well as potentially their own output.
+\item FFT-based algorithms need to access and aggregate previous FFTs using a windowing function before rendering the output in the time domain.
+\end{itemize}
+
+Because of this, subbing out one audio-unit for another cannot be done in the same way that one would substitute a referrentially transparent value like a floating-point number or boolean. In the most extreme cases, for example with a convolution unit, there are undesirable audio artifacts coupled with seconds of lost rendering data.
+
+In imperative audio programming langauges, such as the Web Audio API or PureData, managing stateful units is a core feature of the language. Variables reference a specific generator that on which arbitrary side effects, like setting a frequency or a volume, can be performed:
+
+%
+
+However, in graph-based langauges, this is more challenging. Consider, for example, the following pseudocode:
+
+\being{verbatim}
+render time =
+  if time < 5.0
+  then sinOsc (time * 220)
+  else if time < 10.0
+  then sinOsc (time * 50)
+  else highpass (playBuf "hello")
+\end{verbatim}
+
+We are now demanding much more of the audio engine:
+\begin{itemize}
+\item Even though we haven't specified it, in almost all circumstances we will want to preserve the sine-wave oscillator across the five-second mark to avoid phase disruption.
+\item We do not want the engine to spuriously tear down or create new oscillators, for example arbitrarily changing oscialltor units before the 10-second mark.
+\item We want as little runtime accounting as possible, ideally precompiling an efficient kernel to minimize how much time is spent on our control thread.
+\end{itemize}
+
+As graph-based languages such as Tidal Cycles and \verb=purescript-wags= become more prevelant, it is important to maintain the helpful abstraction of graphs as a pure function of time while rigorously keeping track of active and inactive audio units with as little computational overhead as possible.
+
+This paper proposes a zero-cost abstraction to manage resource allocation in functional audio programming languages combining the following three techniques:
+
+\begin{enumerate}
+  \item Cofree comonads, as popualrized by Edward Kimett in ??.
+  \item Existential quantification~\cite{Someone:00, Someone:09}, first introduced as a programming paradigm by Nigel Perry https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/exts/existential_quantification.html#existentially-quantified-data-constructors.
+  \item Substructural typing, a system popularized by Rust's borrow checker and recently incorporated into GHC XX and other functional contexts.
+\end{enumerate}
+
+The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy and finally giving several real-world stress test and implementation examples using \verb=purescript-wags=.
+
+\section{Cofree comonads}
+\label{sec:cofree_comonads}
+
+\section{Existential quantification}
+\label{sec:existential_quantification}
+
+\section{Affine types}
+\label{sec:affine_types}
+
+\section{Tying it together}
+\label{sec:tying_it_together}
+
+\section{Examples and benchmarks}
+\label{sec:examples_and_benchmarks}
+
+\section{Conclusion}
+\label{sec:conclusion}
 
 
 \subsection{Footnotes}
 You can indicate footnotes with a number in the text \footnote{This is a footnote example.},
-but try to work the content into the main text.Use 8~pt font-size for footnotes.  Place the footnotes at the bottom of the page 
+but try to work the content into the main text.Use 8~pt font-size for footnotes.  Place the footnotes at the bottom of the page
 on which they appear. Precede the footnote with a 0.5~pt horizontal rule.
 
 \section{Citations}
 All bibliographical references should be listed at the end, inside a section named ``REFERENCES''. References must be numbered in order of appearance. You should avoid listing references that do not appear in the text.
 
-Reference numbers in the text should appear within square brackets, such as in~\cite{Someone:00} or~\cite{Someone:00,Someone:04,Someone:09}. The reference format is the standard IEEE one. We highly recommend you use BibTeX 
+Reference numbers in the text should appear within square brackets, such as in~\cite{Someone:00} or~\cite{Someone:00,Someone:04,Someone:09}. The reference format is the standard IEEE one. We highly recommend you use BibTeX
 to generate the reference list.
 
 \section{Conclusions}
 Please, submit full-length papers. Submission is fully electronic and automated through the Conference Web Submission System. \underline{Do not} send papers directly by e-mail.
 
-
-\begin{acknowledgments}
-At the end of the Conclusions, acknowledgements to people, projects, funding agencies, etc. can be included after the second-level heading  ``Acknowledgments'' (with no numbering).
-\end{acknowledgments} 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %bibliography here
