@@ -429,15 +429,12 @@ unEx
 unEx = runExists (map fst)
 \end{lstlisting}
 
-This strategy is one of many that can be used when working with existential types. For our purposes, the general pattern will be to expose the internals of a recursively-defined closure to external consumers.
+Where closures and existential types shine in recursively defined data structures like cofree comonads is their ability to change over the lifetime of a loop at compile time. This significantly improves runtime performance (no pattern matching) and makes it easier to reason about programs, as non-sensical data (ie a filter's \texttt{q} value being passed to a sine wave oscillator) is prohibited at the type level. It is also a necessary stepping stone to indexed types, which is the crux of our resource-management strategy in Section \ref{sec:indexed_types}.
 
-Where ext types shine in recursively defined data structures like cofree comonads is their ability to be specialized at compile time. This significantly improves runtime performance (no pattern matching) and makes it easier to reason about programs, as non-sensical data (ie a filter's $q$ value being passed to a sine wave oscillator) is prohibited at the type level. It is also a necessary stepping stone to indexed types, which is the crux of our resource-management strategy in Section \ref{sec:indexed_types}.
-
-As a motivating example, let's use a render function that switches from an oscillator and a filtered sound at the five-second mark. The behavior of the oscillator and of the filtered sound change irreversibly once a key is pressed. Without existential types, it would be impossible to specialize our cofree comonad to either graph, whereas with existential types this is possible.
+As a motivating example, let's use a render function that switches from an oscillator and a filtered sound at the five-second mark. The behavior of the oscillator and of the filtered sound change irreversibly once a key is pressed. As a first pass, we'll use closures to implement this behavior.
 
 \lstset{language=Haskell, style=psstyle}
 \begin{lstlisting}
-type KPT = { time :: Number, kp :: Boolean }
 renderHP kp_1 fq { kp } =
   let
     isKp = kp_1 || kp
@@ -446,6 +443,7 @@ renderHP kp_1 fq { kp } =
   in Cofree
     (highpass {f: f, q: q } (playBuf "hello"))
     ( render isKp fq)
+
 renderS kp_1 f { time, kp } =
   if time > 5
   then renderHP kp_1 {f:900,q:1} {time,kp}
@@ -456,8 +454,11 @@ renderS kp_1 f { time, kp } =
       in Cofree
         (sinOsc {f: f})
         (renderS isKp fq)
+
 render = renderS false {f: 440}
 \end{lstlisting}
+
+The types of the two internal states, \texttt{fq} and \texttt{f}, are different: one (used in \texttt{renderS}) contains frequency information for an oscillator whereas the other (used in \texttt{renderHP}) contains frequency and q values for a filter. And yet, they can be used inside the closure with no runtime penalty (ie no pattern matching on a union) and no danger of accidentally passing information for the filter to the oscillator or vice versa.
 
 \section{Indexed types}
 \label{sec:indexed_types}
