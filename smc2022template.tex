@@ -6,9 +6,14 @@
 \documentclass{article}
 \usepackage{smc}
 \usepackage{times}
+\usepackage{listings}
 \usepackage{ifpdf}
 \usepackage[english]{babel}
 \usepackage{cite}
+
+\lstdefinestyle{psstyle}{
+  basicstyle=\ttfamily\small
+}
 
 %%%%%%%%%%%%%%%%%%%%%%%% Some useful packages %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%% See related documentation %%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -144,19 +149,28 @@ In imperative audio programming langauges, such as the Web Audio API or PureData
 
 However, in graph-based langauges, this is more challenging. Consider, for example, the following pseudocode:
 
-\begin{verbatim}
-render time =
-  if time < 5.0
-  then sinOsc (time * 220)
-  else if time < 10.0
-  then sinOsc (time * 50)
-  else highpass (playBuf "hello")
-\end{verbatim}
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+type KPT = { time :: Number, kp :: Boolean }
+render :: KPT -> AudioGraph
+render { time, kp } =
+  (
+    if time < 5.0
+    then sinOsc (time * 220)
+    else if time < 10.0
+    then sinOsc (time * 50)
+    else highpass (playBuf "hello")
+  ) <>
+  (
+    when kp (sinOsc 880)
+  )
+\end{lstlisting}
 
 We are now demanding much more of the audio engine:
 \begin{itemize}
 \item Even though we haven't specified it, in almost all circumstances we will want to preserve the sine-wave oscillator across the five-second mark to avoid phase disruption.
 \item We do not want the engine to spuriously tear down or create new oscillators, for example arbitrarily changing oscialltor units before the 10-second mark.
+\item For precise onsets like a keypress (represented by \texttt{kp}), we want to be as reactive as possible, while at the same time avoiding the creation of an event loop that consumes too much CPU or is so tight that it consistently misses a rendering deadline.
 \item We want as little runtime accounting as possible, ideally precompiling an efficient kernel to minimize how much time is spent on our control thread.
 \end{itemize}
 
@@ -165,10 +179,9 @@ As graph-based languages such as Tidal Cycles and PureScript Wags become more pr
 This paper proposes a zero-cost abstraction to manage resource allocation in functional audio programming languages combining the following three techniques:
 
 \begin{enumerate}
-  \item Cofree comonads, as popualrized by Edward Kimett in ??.
-  \item Existential quantification~\cite{Someone:00, Someone:09}, first introduced as a programming paradigm by Nigel Perry.
-  % https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/exts/existential_quantification.html#existentially-quantified-data-constructors
-  \item Substructural typing, a system popularized by Rust's borrow checker and recently incorporated into GHC XX and other functional contexts.
+  \item Cofree comonads~\cite{kmettfree, freeman2017declarative}, as popualrized by Edward Kmett.
+  \item Existential quantification~\cite{perry1991implementation, laufer1994polymorphic}, first introduced as a programming paradigm by Nigel Perry.
+  \item Substructural typing~\cite{walker2005substructural, borrowchecker}, a system popularized by Rust's borrow checker and recently incorporated into GHC XX and other functional contexts.
 \end{enumerate}
 
 The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy and finally giving several real-world stress test and implementation examples using PureScript Wags.
@@ -176,8 +189,261 @@ The paper will give examples of all three concepts, showing how they can be comb
 \section{Cofree comonads}
 \label{sec:cofree_comonads}
 
+To understand what cofree comonads are, it is helpful to first define the following concepts in order: the functor, the comonad, and finally the cofree comonad.
+
+\subsection{Functor}
+
+A functor is a computational context into which functions can be mapped. For example, if there is a function $add1$ that adds one to integers, it can be mapped to the context of an array of integers $[1,2,3,4]$ to produce $[2,3,4,5]$ or to the context of a homogeneous record $\{x:1,y:2\}$ to produce $\{x:2,y:3\}$. The standard definition of $map$ is
+$\forall\,a\, b. (a \rightarrow b) \rightarrow m\,a \rightarrow m\,b$, mapping a function $(a \rightarrow b)$ to operate in context $m$.
+
+Functors are ubiquitous in audio programming: for example, when we apply a function $transposeSemitone$ to a sequence of notes, we understand intuitively that the transposition function is lifted into the context of the sequence even though a rhythmic sequence, pedantically speaking, cannot be ``transposed''.
+
+While functors provide a way to lift functions into contexts, they provide no way to extract values from those contexts, nor do they provide a way to recursively nest contexts. As we'll see in the next section, these are bread-and-butter operations in any realtime audio rendering engine, and this is where comonads come in.
+
+\subsection{Comonad}
+
+A comonad\footnote{Comonads are not to be confused with their close cousins, monads. While monads are outside the scope of this article, they are the categorical dual of comonads and can be used to model a large class of computations.} $w$ is a functor that comes equipped with two operations that fulfill two laws.
+
+The operations are as follows:
+
+\begin{itemize}
+  \item $extract$, which extracts a value $a$ from the context $w$.
+  \item $duplicate$, which takes a context $w\,a$ and ``nests'' or ``projects'' it into $w(w\,a)$.
+\end{itemize}
+
+These operations must satisfy the following laws, where $e$ is $extract$, $d$ is $duplicate$, and $wa$ is an arbitrary comonad:
+
+\begin{itemize}
+  \item $e\,(d (wa)) = wa$
+  \item $map\,e\,(d (wa)) = wa$
+\end{itemize}
+
+The $map$ in the second law is the $map$ discussed above for functors.
+
+In realtime audio programming, $extract$ is the operation to get information like control-rate data or samples from a computational context. $duplicate$ is the operation that takes a context and computes its logical next iteration, which is almost always a rendering or event loop. For example, in the SuperCollider code base, this is defined in \texttt{SC\_EventLoop.hpp}.
+
+Event loops have an additional unique property that is not captured by comonads - for any one iteration, they are \textit{functorial} in nature. That is, the loop is almost never simply executed: it often exists in a computational context that furnishes it with information like the current time and external interactions via transports like MIDI or OSC. So, if the resultant control-rate data or sample buffer is $s$ and the loop's context is a functor $f$, then we have $w (f\,s)$, which is no longer a comonad of $s$ but one of $f\,s$. To resolve this dilemma, we introduce the \textit{cofree comonad}.
+
+\subsection{Cofree comonad}
+
+\textit{Cofree} is a data structure that is parameterized by two types: a functor $f$ and a value $a$. The definition is:
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+data Cofree f a =
+  Cofree a (f (Cofree f a))
+\end{lstlisting}
+
+In languages with strict evaluation, this recursive definition would cause a stack overflow, and in practice, the definition often uses a:
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+data Cofree f a =
+  Cofree a (Unit -> f (Cofree f a))
+\end{lstlisting}
+
+The $Cofree$ constructor takes two arguments: a value $a$ and a computational context $f$ in which one can reason about the next $Cofree\,f\,a$. Note that the next $Cofree\,f\,a$ need not actually exist\footnote{For example, a functor $f$ can choose to ignore its argument $a$, as is the case with ie the $Proxy$ functor, \url{https://hackage.haskell.org/package/base-4.16.0.0/docs/Data-Proxy.html}.}) - event loops can enter into failure states for example, but most server-based programs (ie \texttt{scsynth}) are built around the concept of a potentially infinite event loop.
+
+Cofree is a functor because it has the following instance for $map$:
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+map f (Cofree a b) =
+  Cofree (f a) (map (map f) b)
+\end{lstlisting}
+
+It is a comonad because it has the following instances for $extract$ and $duplicate$:
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+extract (Cofree a _) = a
+duplicate c@(Cofree _ b) =
+  Cofree c (map duplicate b)
+\end{lstlisting}
+
+Most importantly, $Cofree$ can be unwrapped by returning the second argument:
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+unwrapCofree :: Cofree f a -> f (Cofree f a)
+unwrapCofree (Cofree _ b) = b
+\end{lstlisting}
+
+In an audio rendering engine, for example, this gives us the next iteration of a rendering loop $f\,a$. For example, if $f$ is $Function\,\{ time :: Number \}$, then at each unwrapping of the loop, we ``unlock'' the next step by providing the current time. This is also called the generator pattern in imperative languages like Python.
+
+\subsection{Revisiting our pseudocode}
+
+Let's revisit our pseudocode through the prism of cofree comonads. We'll reduce the size of the example for brevity:
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+type KPT = { time :: Number, kp :: Boolean }
+render :: KPT -> AudioGraph
+render { time, kp } =
+  (
+    if time < 5.0
+    then sinOsc (time * 220)
+    else highpass (playBuf "hello")
+  ) <> (when kp (sinOsc 880))
+\end{lstlisting}
+
+We can rewrite this as a function that yields a cofree comonad which yields an audio graph and an event loop.
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+type KPT = { time :: Number, kp :: Boolean }
+render :: KPT -> Cofree ((->) KPT) AudioGraph
+render { time, kp } =
+  Cofree
+    (
+      (
+        if time < 5.0
+        then sinOsc (time * 220)
+        else highpass (playBuf "hello")
+      ) <> (when kp (sinOsc 880))
+    )
+    render
+\end{lstlisting}
+
+Here, beacuse the underlying Functor is \texttt{((->) KPT)}=, we can use \texttt{render} recursively in its own definition. So, \texttt{extract} yields our control-rate data whereas \texttt{unwrap\-Cofree} yields the next iteration of the event loop.
+
+In practice, this also changes the way the event loop is written. When using pure functions, an event loop can be written like so (assuming that one is in an asynchronous effectful monadic context like \texttt{IO} in Haskell or \texttt{Aff} in PureScript).
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+-- with pure functions
+loop = do
+  time <- getTime
+  kp <- ketKp
+  let res = render { time, kp }
+  doSomethingWith res
+  delay 0.03
+  loop
+
+-- with a cofree comonad
+loop =
+  let f r = do
+    time <- getTime
+    kp <- ketKp
+    let res = render { time, kp }
+    doSomethingWith (extract res)
+    delay 0.03
+    f (unwrapCofree res)
+  in f render
+\end{lstlisting}
+
+So far, this formulation provides no advantage over a pure function of time. However, things get more interesting when we introduce arbitrary internal states in the definition of our cofree comonad. For example, if we want the sine-wave oscillator to release one second after a keypress ends, there is no way to do this with a pure function of time because there is no retention of state. Cofree comonads, on the other hand, make this trivial.
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+type KPT = { time :: Number, kp :: Boolean }
+render :: KPT -> Cofree ((->) KPT) AudioGraph
+render  =
+  let
+    f kp_1 t_1 { time, kp } =
+      Cofree
+        (
+          (
+            if time < 5.0
+            then sinOsc (time * 220)
+            else highpass (playBuf "hello")
+          ) <>
+          (when (kp || time < t_1 + 1.0)
+                (sinOsc 880))
+        )
+        (
+          render kp
+            (if kp_1 && not kp
+                then time else t_1)
+        )
+  in f false (-inf)
+\end{lstlisting}
+
+While this section has showed us how to write an event loop and how to extract krate/arate data from a computation in a functional style, it still has not solved the issue of resource management of stateful audio units. To do this, we will need to introduce the concept of existential quantification and use that to build a substructural type system within a cofree comonad.
+
 \section{Existential quantification}
 \label{sec:existential_quantification}
+
+In the last example from Section \ref{sec:existential_quantification}, we saw how state can be curried in a cofree comonad's definition to create effects like delayed releases of oscilators and in general any sort of memory cell needed for filtering and delay lines.
+
+This technique suffers from a severe drawback, however: the internal state is monomorphic, meaning that it will have the same type for every iteration of the event loop. In practice, this does not make sense --- based on performer input and time, the audio units present in a graph will change, and the memory cells will need to change as well.
+
+This problem can be solved using \textit{existential types}. Existential types are types that hide an type variable in their definition, thereby making the variable existentially quanitified (this is also called a coend~\cite{yoneda1960ext}). As an example, the \texttt{Exists} type in PureScript can be used to turn any type constructor $f\,a$ into an existential type $\exists a. f\,a$.
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+data StreamF a s = StreamF s (s -> Tuple s a)
+type Stream a = Exists (StreamF a)
+\end{lstlisting}
+
+A useful way to think about existential types is in terms of epistemic certainty. If a universally quantified definition is true ``for all'' types (this is the norm in functional programming languages, for example the $identity$ function is defined as $\forall a. a \rightarrow a$), then it is a tautology. On the other hand, existential types are the weakest epistomological claim one can make: they assert that something exists without knowing anything about it.
+
+In most programming contexts, existential types are of limited utility precisely because you know nothing about their contents. For example, taking the pure definition of the \texttt{render} function above (with no cofree comonad), an existential type would not make sense because it would effectively erase the output type --- we would go from knowing that the function produces krate data to not knowing anything about it.
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+type KPT = { time :: Number, kp :: Boolean }
+type Render a = KPT -> a
+-- we have now erased the output type,
+-- losing the ability to know what
+-- our render function produces!
+type Nonsense = Exists Render
+\end{lstlisting}
+
+However, in the cofree comonad definition of the render loop, existential types become much more useful --- they can be used to specialize any one iteration of a rendering loop to a precise audio graph. To do this, we will have to slightly modify the definition of our comonad, introducing a new intermediary type that we'll call \texttt{Frame}.
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+data Frame o a = Frame o a
+newtype Scene i o = Scene (Cofree ((->) i) o)
+extractScene (Scene c) = extract c
+unwrapScene (Scene c) = unwrapCofree c
+makeScene
+  :: Frame o a
+  -> (Frame o a -> Scene i o)
+  -> Scene i o
+makeScene f f2s = f2s f
+\end{lstlisting}
+
+At first blush, \texttt{makeScene} is similar to \texttt{makeCofree}, but the crucial difference lies in the existential type $a$ that is hidden from \texttt{Scene}. Unlike \texttt{Exists} above, which fixes $a$ to a single type, this allows $a$ to as the cofree comonad unwraps.
+
+As a motivating example, let's use a render function that switches from an oscillator and a filtered sound at the five-second mark. The behavior of the oscillator and of the filtered sound change irreversibly once a key is pressed. Without existential types, it would be impossible to specialize our cofree comonad to either graph, whereas with existential types this is possible.
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+type KPT = { time :: Number, kp :: Boolean }
+render :: KPT -> Scene ((->) KPT) AudioGraph
+renderHighpass kp_1 { time, kp } { freq, q } =
+  makeScene
+    (
+      highpass { freq: f, q: q' }
+        (playBuf "hello")
+    )
+    (
+      f kp_1
+        (if kp_1 && not kp
+            then time else time)
+    )
+  where
+  f = if (kp_1 || kp) then 1000.0 else 2000.0
+  q' = if (kp_1 || kp) then 1.0 else 40.0
+render  =
+  let
+    f kp_1 { time, kp } =
+      if time < 5.0 then
+        makeScene
+          (
+            if time < 5.0
+            then sinOsc (time * 220)
+            else highpass (playBuf "hello")
+          )
+          (
+            f kp_1
+              (if kp_1 && not kp
+                  then time else time)
+          )
+  in f false
+\end{lstlisting}
 
 \section{Affine types}
 \label{sec:affine_types}
@@ -190,21 +456,6 @@ The paper will give examples of all three concepts, showing how they can be comb
 
 \section{Conclusion}
 \label{sec:conclusion}
-
-
-\subsection{Footnotes}
-You can indicate footnotes with a number in the text \footnote{This is a footnote example.},
-but try to work the content into the main text.Use 8~pt font-size for footnotes.  Place the footnotes at the bottom of the page
-on which they appear. Precede the footnote with a 0.5~pt horizontal rule.
-
-\section{Citations}
-All bibliographical references should be listed at the end, inside a section named ``REFERENCES''. References must be numbered in order of appearance. You should avoid listing references that do not appear in the text.
-
-Reference numbers in the text should appear within square brackets, such as in~\cite{Someone:00} or~\cite{Someone:00,Someone:04,Someone:09}. The reference format is the standard IEEE one. We highly recommend you use BibTeX
-to generate the reference list.
-
-\section{Conclusions}
-Please, submit full-length papers. Submission is fully electronic and automated through the Conference Web Submission System. \underline{Do not} send papers directly by e-mail.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
