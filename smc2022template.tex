@@ -5,7 +5,9 @@
 
 \documentclass{article}
 \usepackage{smc}
+\usepackage{enumitem}% http://ctan.org/pkg/enumitem
 \usepackage{times}
+\usepackage[htt]{hyphenat}
 \usepackage{listings}
 \usepackage{ifpdf}
 \usepackage[english]{babel}
@@ -115,19 +117,18 @@
 \capstarttrue
 %
 \begin{abstract}
-Audio programming languages fall into two broad categories: imperative (CSound, sclang) and functional (Faust, tidal). For the latter, the declarative and immutable nature of data and control structures are often at odds with the mutable and referentially opaque nature of audio units like oscillators and filters. Recently, languages such as Rust have simplified this task through zero-cost abstractions to manage resource allocation in otherwise functional settings. This paper applies these techniques to functional audio programming languages. In addition to correct and low-latency automatic audio memory management, we will see how these techniques allow for efficient namespacing, drastically reducing the amount of time it takes for ceratin graph traversals.
+Audio programming languages fall into two broad categories: imperative (CSound, sclang) and functional (Faust, tidal). For the latter, the declarative and immutable nature of data and control structures are often at odds with the mutable and referentially opaque nature of audio units like oscillators and filters. Recently, languages such as Rust have bridged this chasm through zero-cost abstractions that manage resource allocation in otherwise functional settings. In the same spirit, this paper presents a zero-cost abstraction for the management of audio units when working with pure audio rendering functions. The result is automatic audio memory management that incurs minimal runtime penalty while retaining an expressive functional syntax.
 \end{abstract}
 %
 
 \section{Introduction}\label{sec:introduction}
-The prevailing resource-management paradigm in all modern DAWs and most visual or text-based music creation environments is to model resources as units that are connected to each other. Several examples of this are shown in \ref{fig:audio-units}.
+The prevailing resource-management paradigm in all modern DAWs and most visual or text-based music creation environments is to model resources as units that are connected to each other. This is done via patcher chords in PD and Max, busses in SuperCollider, and argument passing in CSound.
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.6\columnwidth]{figure}
-\caption{Figure captions should be placed below the figure,
-exactly like this.\label{fig:audio-units}}
-\end{figure}
+%\begin{figure}[t]
+%\centering
+%\includegraphics[width=0.6\columnwidth]{figure}
+%\caption{Figure captions should be placed below the figure,exactly like this.\label{fig:audio-units}}
+%\end{figure}
 
 % web audio example
 % max example
@@ -145,7 +146,16 @@ Because of this, subbing out one audio-unit for another cannot be done in the sa
 
 In imperative audio programming langauges, such as the Web Audio API or PureData, managing stateful units is a core feature of the language. Variables reference a specific generator that on which arbitrary side effects, like setting a frequency or a volume, can be performed:
 
-%
+\lstset{language=Java, style=psstyle}
+\begin{lstlisting}
+const oscillator = ctx.createOscillator();
+oscillator.type = "square";
+oscillator
+  .frequency
+  .setValueAtTime(440, ctx.currentTime);
+oscillator.connect(ctx.destination);
+oscillator.start();
+\end{lstlisting}
 
 However, in graph-based langauges, this is more challenging. Consider, for example, the following pseudocode:
 
@@ -159,7 +169,7 @@ render { time, kp } =
     then sinOsc (time * 220)
     else if time < 10
     then sinOsc (time * 50)
-    else highpass (playBuf "hello")
+    else highpass (playBuf "hi")
   ) <>
   (
     when kp (sinOsc 880)
@@ -170,7 +180,6 @@ We are now demanding much more of the audio engine:
 \begin{itemize}
 \item Even though we haven't specified it, in almost all circumstances we will want to preserve the sine-wave oscillator across the five-second mark to avoid phase disruption.
 \item We do not want the engine to spuriously tear down or create new oscillators, for example arbitrarily changing oscialltor units before the 10-second mark.
-\item For precise onsets like a keypress (represented by \texttt{kp}), we want to be as reactive as possible, while at the same time avoiding the creation of an event loop that consumes too much CPU or is so tight that it consistently misses a rendering deadline.
 \item We want as little runtime accounting as possible, ideally precompiling an efficient kernel to minimize how much time is spent on our control thread.
 \end{itemize}
 
@@ -184,7 +193,7 @@ This paper proposes a zero-cost abstraction to manage resource allocation in fun
   \item Indexed types~\cite{zenger1997indexed}, which can be used to control transitions between states at compile time using a type checker like that of Rust, Scala, Haskell or PureScript.
 \end{enumerate}
 
-The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy and finally giving several real-world stress test and implementation examples using PureScript Wags.
+The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy and finally showing a real-world stress test using PureScript Wags.
 
 \section{Cofree comonads}
 \label{sec:cofree_comonads}
@@ -283,7 +292,7 @@ render { time, kp } =
   (
     if time < 5
     then sinOsc (time * 220)
-    else highpass (playBuf "hello")
+    else highpass (playBuf "hi")
   ) <> (when kp (sinOsc 880))
 \end{lstlisting}
 
@@ -299,7 +308,7 @@ render { time, kp } =
       (
         if time < 5
         then sinOsc (time * 220)
-        else highpass (playBuf "hello")
+        else highpass (playBuf "hi")
       ) <> (when kp (sinOsc 880))
     )
     render
@@ -346,7 +355,7 @@ render  =
           (
             if time < 5
             then sinOsc (time * 220)
-            else highpass (playBuf "hello")
+            else highpass (playBuf "hi")
           ) <>
           (when (kp || time < t_1 + 1)
                 (sinOsc 880))
@@ -408,7 +417,7 @@ render  =
           ((
             if n.time < 5
             then sinOsc (n.time * 220)
-            else highpass (playBuf "hello")
+            else highpass (playBuf "hi")
           ) <>
           (when (n.kp || n.time < t.time + 1)
                 (sinOsc 880))) /\ t
@@ -429,7 +438,7 @@ unEx
 unEx = runExists (map fst)
 \end{lstlisting}
 
-Where closures and existential types shine in recursively defined data structures like cofree comonads is their ability to change over the lifetime of a loop at compile time. This significantly improves runtime performance (no pattern matching) and makes it easier to reason about programs, as non-sensical data (ie a filter's \texttt{q} value being passed to a sine wave oscillator) is prohibited at the type level. It is also a necessary stepping stone to indexed types, which is the crux of our resource-management strategy in Section \ref{sec:indexed_types}.
+Where closures and existential types shine in recursively defined data structures like cofree comonads is their ability to change over the lifetime of a loop at compile time. This significantly improves runtime performance (no pattern matching) and makes it easier to reason about programs, as non-sensical data (ie a filter's \texttt{q} value being passed to a sine wave oscillator) is prohibited at the type level. It is also a necessary stepping stone to indexed types, which is the crux of our resource-management strategy in Section \ref{sec:existential_quantification}.
 
 As a motivating example, let's use a render function that switches from an oscillator and a filtered sound at the five-second mark. The behavior of the oscillator and of the filtered sound change irreversibly once a key is pressed. As a first pass, we'll use closures to implement this behavior.
 
@@ -441,7 +450,7 @@ renderHP kp_1 fq { kp } =
     f = fq.f + (isKp ? 0 : 1000)
     q = fq.q + (isKp ? 0 : 40)
   in Cofree
-    (highpass {f: f, q: q } (playBuf "hello"))
+    (highpass {f: f, q: q } (playBuf "hi"))
     ( render isKp fq)
 
 renderS kp_1 f { time, kp } =
@@ -460,16 +469,143 @@ render = renderS false {f: 440}
 
 The types of the two internal states, \texttt{fq} and \texttt{f}, are different: one (used in \texttt{renderS}) contains frequency information for an oscillator whereas the other (used in \texttt{renderHP}) contains frequency and q values for a filter. And yet, they can be used inside the closure with no runtime penalty (ie no pattern matching on a union) and no danger of accidentally passing information for the filter to the oscillator or vice versa.
 
+It's possible to pass from closures to existential types by using the continuation passing pattern~\cite{sussman14ai}, whereby the control flow of a function (in our case, the loop) is yielded to a continuation. We'll use a slightly different formulation, dispensing with the \texttt{Exists} type for brevity while retaining the same technique of hiding an internal type parameter \texttt{c} using an existential type.\footnote{Note that, in this example, lazy evaluation is assumed. In strict languages, it causes a stack overflow and the construction of the cofree comonad would need to be deferred.}
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+flip f a b = f b a
+type Intern f a c = Cofree f (a /\ c)
+type Extern f a = Cofree f a
+
+cp a b = map (map fst) (b a)
+
+renderHP kp_1 fq { kp } =
+  let
+    isKp = kp_1 || kp
+    f = fq.f + (isKp ? 0 : 1000)
+    q = fq.q + (isKp ? 0 : 40)
+  in Cofree
+    (highpass {f: f, q: q } (playBuf "hi"))
+    ( render isKp fq) /\ fq
+
+renderS kp_1 f { kp } =
+  let
+    isKp = kp_1 || kp
+    f = f.f + (isKp ? 0 : 200)
+  in Cofree
+    (sinOsc {f: f})
+    (renderS isKp fq) /\ f
+
+render =
+  let z i a =
+    if i.time > 5
+    then f a z
+    else
+      cp
+        (renderHP kp_1 {f:900,q:1} {time,kp})
+        (flip cp)
+  let f x = cp x z
+  in f (renderS false {f: 440})
+\end{lstlisting}
+
+Now, it is possible to define functions that interact directly with the data types yielded by \texttt{renderHP} and \texttt{renderS}, both of which expose their internal state. Furthermore, we have abstracted time management outside of the definition of \texttt{renderS} to the toplevel \texttt{render} function, allowing the delegation of temporal branching to different control structures. The function \texttt{cp} takes care of the type erasure from \texttt{Intern} to \texttt{Extern} in the same way that \texttt{Exists} erases a type.
+
+Recasting type-level changes of internal states from closures to existential types does more than allow us to write APIs for interacting with an internal state. It also the crucial step that allows us to reason about resource management, as we will see in the next section on indexed types.
+
 \section{Indexed types}
 \label{sec:indexed_types}
 
-\section{Tying it together}
-\label{sec:tying_it_together}
+If we take a closer look at the interaction between \texttt{Intern f a c} and \texttt{Extern f a}, we see that it erases a single type --- the internal state \texttt{c} of the cofree comonad. This erasure also happens at the term level --- we drop \texttt{c} from the final cofree comonad. If we didn't drop this term, we would lose the ability to vary \texttt{c} as a function of time, as we saw in examples from Section \ref{sec:existential_quantification}.
 
-\section{Examples and benchmarks}
-\label{sec:examples_and_benchmarks}
+Nothing stops us from erasing multiple types, however, nor do all of the types have to appear in the corresponding terms. For example, we could have defined intern as {type Intern f i o a c = Cofree f (a /\ c)}. Here, \texttt{i} and \texttt{o} are phantom types: in addition to being erased, they have no representation at the term level in the cofree comonad. Instead, we can use types like these to track aspects of our program at compile time. This is called a ``zero-cost abstraction'': it is an abstraction that offloads complexity entirely to the compiler and is erased at the term level, or otherwise stated, there is no runtime penalty.
+
+When phantom types are used in this way, we call them \textit{indexed types}. The term index is used similarly as in set theory, where a collection (in this case a collection of control-rate values for an audio graph) is indexed by a set (in this case, the audio graph).
+
+Indexed types are the key to managing the allocation of resources of an audio graph using cofree comonads. Changes in indices represent changes in the underlying audio graph. For example, if index $i_0$ is \texttt{SinOsc} and index $i_1$ is \texttt {Highpass (PlayBuf)}, the compiler knows that it will ahve to destroy a sine wave oscillator and create a playable buffer linked to a highpass filter.
+
+Because types $i_0,i_1,...,i_n,...$ are potentially different at each iteration of the rendering loop, they cannot appear in the type of the final cofree comonad \texttt{Cofree f a}. Instead, they must be erased via existential quantification using the same techniques we used in the previous section.
+
+Let's see this technique applied to the same example above where a sine-wave oscillator changes to a filtered buffer. For brevity, we will not include the function definitions - just the function signatures that are used. For several examples of function definitions that accomplish this, one may consult the example folder of the \texttt{purescript-wags} project\footnote{\url{https://github.com/mikesol/purescript-wags/tree/main/examples/kitchen-sink}}.
+
+\lstset{language=Haskell, style=psstyle}
+\begin{lstlisting}
+type KPT = { time :: Number, kp :: Boolean }
+flip f a b = f b a
+type Intern f a i c = ...
+type Extern f a = ...
+type F = { f :: Number }
+type Fq = { f :: Number, q :: Number }
+type IKPT = Intern ((->) KPT)
+trans0
+  :: IKPT AudioGraph F EmptyGraph
+  -> IKPT AudioGraph F SinOsc
+trans1
+  :: IKPT AudioGraph F SinOsc
+  -> IKPT AudioGraph F SinOsc
+trans2
+  :: IKPT AudioGraph F SinOsc
+  -> IKPT AudioGraph Fq (HighPass (PlayBuf))
+trans3
+  :: IKPT AudioGraph Fq (HighPass (PlayBuf))
+  -> IKPT AudioGraph Fq (HighPass (PlayBuf))
+\end{lstlisting}
+
+This example is more complex in that there are four transitions between indexed states:
+\begin{enumerate}
+  \item At time 0, a transition from the empty graph to a sine-wave oscillator.
+  \item At all remaining times until five seconds, a noop.
+  \item At the five-second mark, transition from a sine-wave oscillator to a filtered buffer.
+  \item From here until the audio is shut off, a noop.
+\end{enumerate}
+
+These transitions are tracked entirely at compile-time, which speeds up audio rendering substantially in that there is no need to track changes in the potentially-very-large audio graph at runtime. Instead, the only changes that need to be propagated to the graph are new control values, which requires no diff between graphs.
+
+Before looking at benchmarks in the next section, let's revisit the path to indexed types to show how the allocation of audio resources can be tracked by indices in a purely functional setting.
+
+\begin{enumerate}
+  \item Instead of repeatedly calling a pure function of time, rendering loops can unfold a cofree comonad that yields functions of time at each iteration.
+  \item Cofree comonads can have changing internal states, and these internal states can be represented at the typelevel as complex types that are transformed into simpler cofree comonads via existential quantification.
+  \item One of these existentially-eliminated types can be an index that tracks the current state of the audio graph. The compiler, as it tracks the evolution of this type, can emit efficient instructions for graph manipulations at compile-time, eliminating the need for runtime graph traversals.
+\end{enumerate}
+
+\section{Example and benchmark}
+\label{sec:example_and_benchmark}
+
+To illustrate the runtime benefits of this approach, the following test was run.
+
+\begin{enumerate}
+  \item An audio graph with 61 units - 1 speaker, 30 gain controls and 30 sine-wave oscillators, was created twice in web audio using Google Chrome. Both versions model an audio graph as a pure function of time.\footnote{The function can be seen at the following URL: \url{https://github.com/mikesol/purescript\-wags/blob/b6930c5aab6ec5f04f7d8d07231a04b12f70388e/examples/smc2022/SMC2022.purs\#L39}.}
+  \begin{enumerate}[label*=\arabic*.]
+    \item The first version\footnote{See this url: \url{https://github.com/mikesol/purescript\-wags/blob/b6930c5aab6ec5f04f7d8d07231a04b12f70388e/examples/smc2022/SMC2022.purs\#L74}.} uses the zero-cost abstraction described in this paper.
+    \item The second version uses a runtime graph traversal to detect changes in the graph.
+  \end{enumerate}
+  \item Approximately ten seconds of audio was rendered using the both versions.
+  \item The results are as follows:
+  \begin{enumerate}[label*=\arabic*.]
+    \item The first version's audio rendering took approximately 1.7\% of the total rendering time. This is shown in Figure \ref{fig:first_version_rendering}.
+    \item The first version's audio rendering took 38.8\% of the total rendering time. This is shown in Figure \ref{fig:second_version_rendering}.
+  \end{enumerate}
+\end{enumerate}
+
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\columnwidth]{fast}
+\caption{The rendering result of an audio graph created using zero-cost abstractions at compile-time.\label{fig:first_version_rendering}}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\columnwidth]{slow}
+\caption{The rendering result of an audio graph created using runtime graph traversals.\label{fig:second_version_rendering}}
+\end{figure}
+
+This shows that, for a moderately complex audio graph, the zero-cost abstraction was over 22 times faster than the version that made runtime graph traversals. This result can be reproduced at the following url: \url{https://smc2022.surge.sh}.
 
 \section{Conclusion}
+
+As functionalal audio programming becomes more ubiquitous and as large media houses like Epic Games\footnote{See \url{https://discourse.haskell.org/t/an-epic-future-for-spj/3573}} turn to functional programming to power parts of their rendering pipelines, the need for efficient representations of purely functional audio graphs becomes increasingly important. This paper presents a zero-cost abstraction for managing audio graph resources by using existential typing to erase indexed representations of audio graphs in a cofree comonad. The resulting algorithm was able to outperform a runtime graph traversal by a factor of 22 on a moderately complex graph. While the algorithm was presented in Haskell-family pseudocode, the technique can be applied to any language that can perform typelevel functions on partially-applied types, as \texttt{Exists} does in this paper. This includes Scala, F\#, PureScript, Agda and Idris. By following this method, artists can benefit from the conceptual elegance and power of the functional style while enjoying the fast runtime traditionally associated with imperative languages.
+
 \label{sec:conclusion}
 
 
