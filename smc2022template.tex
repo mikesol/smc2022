@@ -5,6 +5,7 @@
 
 \documentclass{article}
 \usepackage{smc}
+\usepackage{textcomp}
 \usepackage{enumitem}% http://ctan.org/pkg/enumitem
 \usepackage{times}
 \usepackage[htt]{hyphenat}
@@ -32,7 +33,7 @@
 
 
 %user defined variables
-\def\papertitle{Zero-cost abstractions to manage audio resource allocation in functional audio languages}
+\def\papertitle{Zero-cost abstractions to manage audio resource allocation in functional programming languages}
 \def\firstauthor{Mike Solomon}
 
 % adds the automatic
@@ -117,7 +118,7 @@
 \capstarttrue
 %
 \begin{abstract}
-Audio programming languages fall into two broad categories: imperative (CSound, sclang) and functional (Faust, tidal). For the latter, the declarative and immutable nature of data and control structures are often at odds with the mutable and referentially opaque nature of audio units like oscillators and filters. Recently, languages such as Rust have bridged this chasm through zero-cost abstractions that manage resource allocation in otherwise functional settings. In the same spirit, this paper presents a zero-cost abstraction for the management of audio units when working with pure audio rendering functions. The result is automatic audio memory management that incurs minimal runtime penalty while retaining an expressive functional syntax.
+Audio programming languages fall into two broad categories: imperative (CSound, sclang) and functional (Faust, tidal). For the latter, the declarative and immutable nature of data and control structures are often at odds with the mutable and referentially opaque nature of audio units like oscillators and filters. Recently, languages such as Rust have bridged this chasm through zero-cost abstractions that manage resource allocation in otherwise functional settings. In the same spirit, this paper presents a zero-cost abstraction for the management of audio units when working with pure audio rendering functions. The result is automatic audio memory management that incurs a minimal runtime penalty while retaining an expressive functional syntax.
 \end{abstract}
 %
 
@@ -137,17 +138,17 @@ The prevailing resource-management paradigm in all modern DAWs and most visual o
 Almost all audio units preserve some notion of state internally. For example:
 
 \begin{itemize}
-\item Waveforms remember their previous position in a lookup table so that changes in frequency do not disrupt phase.
+\item Waveforms remember their previous position in a lookup table so that changes in frequency do not disrupt the phase.
 \item Biquad filters and delay lines need to access a certain number of input samples in the past as well as potentially their own output.
 \item FFT-based algorithms need to access and aggregate previous FFTs using a windowing function before rendering the output in the time domain.
 \end{itemize}
 
-Because of this, subbing out one audio-unit for another cannot be done in the same way that one would substitute a referrentially transparent value like a floating-point number or boolean. In the most extreme cases, for example with a convolution unit, there are undesirable audio artifacts coupled with seconds of lost rendering data.
+Because of this, substituting one audio unit for another cannot be done in the same way that one would substitute a referentially transparent value like a floating-point number or boolean. In the most extreme cases, for example in the case of a reverb unit, there are undesirable audio artifacts coupled with seconds of lost rendering data.
 
-In imperative audio programming langauges, such as the Web Audio API or PureData, managing stateful units is a core feature of the language. Variables reference a specific generator that on which arbitrary side effects, like setting a frequency or a volume, can be performed:
+In imperative audio programming languages, such as the Web Audio API or PureData, managing stateful units is a core feature of the language. Units are assigned to variables on which arbitrary side effects, like setting a frequency or a volume, can be performed:
 
 \lstset{language=Java, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 const oscillator = ctx.createOscillator();
 oscillator.type = "square";
 oscillator
@@ -157,12 +158,12 @@ oscillator.connect(ctx.destination);
 oscillator.start();
 \end{lstlisting}
 
-However, in graph-based langauges, this is more challenging. Consider, for example, the following pseudocode:
+However, in graph-based languages, this is more challenging. Consider, for example, the following pseudocode:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 type KPT = { time :: Number, kp :: Boolean }
-render :: KPT -> AudioGraph
+render :: KPT (*$\rightarrow$*) AudioGraph
 render { time, kp } =
   (
     if time < 5
@@ -179,35 +180,37 @@ render { time, kp } =
 We are now demanding much more of the audio engine:
 \begin{itemize}
 \item Even though we haven't specified it, in almost all circumstances we will want to preserve the sine-wave oscillator across the five-second mark to avoid phase disruption.
-\item We do not want the engine to spuriously tear down or create new oscillators, for example arbitrarily changing oscialltor units before the 10-second mark.
-\item We want as little runtime accounting as possible, ideally precompiling an efficient kernel to minimize how much time is spent on our control thread.
+\item We do not want the engine to spuriously tear down or create new oscillators, for example arbitrarily changing oscillator units before the 10-second mark.
+\item We want as little runtime accounting of audio units as possible, ideally precompiling an efficient kernel to minimize how much time is spent on our control thread.
 \end{itemize}
 
-As graph-based languages such as Tidal Cycles and PureScript Wags become more prevelant, it is important to maintain the helpful abstraction of graphs as a pure function of time while rigorously keeping track of active and inactive audio units with as little computational overhead as possible.
+As functional frameworks such as Tidal Cycles and PureScript Wags become more prevalent, it is important to maintain the helpful abstraction of graphs as a pure function of time while rigorously keeping track of active and inactive audio units with as little computational overhead as possible.
 
 This paper proposes a zero-cost abstraction to manage resource allocation in functional audio programming languages combining the following three techniques:
 
 \begin{enumerate}
-  \item Cofree comonads~\cite{kmettfree, freeman2017declarative}, as popualrized by Edward Kmett.
+  \item Cofree comonads~\cite{kmettfree, freeman2017declarative}, as popularized by Edward Kmett.
   \item Existential quantification~\cite{perry1991implementation, laufer1994polymorphic}, first introduced as a programming paradigm by Nigel Perry.
-  \item Indexed types~\cite{zenger1997indexed}, which can be used to control transitions between states at compile time using a type checker like that of Rust, Scala, Haskell or PureScript.
+  \item Indexed types~\cite{zenger1997indexed}, which can be used to control transitions between states at compile time.
 \end{enumerate}
 
-The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy and finally showing a real-world stress test using PureScript Wags.
+The paper will give examples of all three concepts, showing how they can be combined into an audio-resource management strategy. It will end by showing the results of a benchmark conducted using PureScript Wags.
 
 \section{Cofree comonads}
 \label{sec:cofree_comonads}
+
+The first leg of our functional journey will explore cofree comonads, which can be used as a drop-in replacement for pure functions of time in effectful settings while providing the added advantage of retaining an internal state both at the type \textit{and} term level. It is this state that will ultimately power our zero-cost abstraction.
 
 To understand what cofree comonads are, it is helpful to first define the following concepts in order: the functor, the comonad, and finally the cofree comonad.
 
 \subsection{Functor}
 
-A functor is a computational context into which functions can be mapped. For example, if there is a function $add1$ that adds one to integers, it can be mapped to the context of an array of integers $[1,2,3,4]$ to produce $[2,3,4,5]$ or to the context of a homogeneous record $\{x:1,y:2\}$ to produce $\{x:2,y:3\}$. The standard definition of $map$ is
-$\forall\,a\, b. (a \rightarrow b) \rightarrow m\,a \rightarrow m\,b$, mapping a function $(a \rightarrow b)$ to operate in context $m$.
+A functor is a computational context into which functions can be mapped. For example, if there is a function \verb=add1= that adds 1 to an integer, it can be mapped to the context of an array of integers $[1,2,3,4]$ to produce $[2,3,4,5]$ or to the context of a homogeneous record $\{x:1,y:2\}$ to produce $\{x:2,y:3\}$. The standard definition of \verb=map= is
+\texttt{$\forall$ a b. (a $\rightarrow$ b) $\rightarrow$ m a $\rightarrow$ m b}, mapping a function \texttt{a $\rightarrow$ b} to operate in context \texttt{m}.
 
-Functors are ubiquitous in audio programming: for example, when we apply a function $transposeSemitone$ to a sequence of notes, we understand intuitively that the transposition function is lifted into the context of the sequence even though a rhythmic sequence, pedantically speaking, cannot be ``transposed''.
+Functors are ubiquitous in audio programming: for example, when we apply a function \texttt{transposeSemitone} to a sequence of notes, we understand intuitively that the transposition function is lifted into the context of the sequence even though a rhythmic sequence, pedantically speaking, cannot be ``transposed'' harmonically.
 
-While functors provide a way to lift functions into contexts, they provide no way to extract values from those contexts, nor do they provide a way to recursively nest contexts. As we'll see in the next section, these are bread-and-butter operations in any realtime audio rendering engine, and this is where comonads come in.
+While functors provide a way to lift functions into contexts like arrays and records, they provide no way to extract values from those contexts, nor do they provide a way to recursively nest contexts. As we'll see in the next section, these are bread-and-butter operations of any realtime audio rendering engine, and this is where comonads come in.
 
 \subsection{Comonad}
 
@@ -216,78 +219,78 @@ A comonad\footnote{Comonads are not to be confused with their close cousins, mon
 The operations are as follows:
 
 \begin{itemize}
-  \item $extract$, which extracts a value $a$ from the context $w$.
-  \item $duplicate$, which takes a context $w\,a$ and ``nests'' or ``projects'' it into $w(w\,a)$.
+  \item \textbf{extract}, which extracts a value \texttt{a} from the term \texttt{w a}.
+  \item \textbf{duplicate}, which takes a term \texttt{w a} and ``nests'' or ``projects'' it into \texttt{w (w a)}.
 \end{itemize}
 
-These operations must satisfy the following laws, where $e$ is $extract$, $d$ is $duplicate$, and $wa$ is an arbitrary comonad:
+These operations must satisfy the following laws, where \texttt{e} is \texttt{extract}, \texttt{d} is \texttt{duplicate}, and \texttt{wa} is an arbitrary comonad:
 
 \begin{itemize}
-  \item $e\,(d (wa)) = wa$
-  \item $map\,e\,(d (wa)) = wa$
+  \item \texttt{e (d (wa)) $=\joinrel=$ wa}
+  \item \texttt{map e (d (wa)) $=\joinrel=$ wa}
 \end{itemize}
 
-The $map$ in the second law is the $map$ discussed above for functors.
+The \verb=map= in the second law is the \verb=map= discussed previously for functors.
 
-In realtime audio programming, $extract$ is the operation to get information like control-rate data or samples from a computational context. $duplicate$ is the operation that takes a context and computes its logical next iteration, which is almost always a rendering or event loop. For example, in the SuperCollider code base, this is defined in \texttt{SC\_EventLoop.hpp}.
+Even though most audio frameworks do not use comonadic terminology in their codebase, these two operations --- extract and duplicate --- are ubiquitous in audio programming. \texttt{extract} is the operation to get information like control-rate data or samples from a computational context.\footnote{For example, in the SuperCollider code base, this is defined as a function called \texttt{Callback} in the file \texttt{SC\_AU.h}} \texttt{duplicate} is the operation that takes a context and computes its logical next iteration, which is almost always a rendering or event loop.\footnote{For example, in the SuperCollider code base, this is defined in the file \texttt{SC\_EventLoop.hpp}}.
 
-Event loops have an additional unique property that is not captured by comonads - for any one iteration, they are \textit{functorial} in nature. That is, the loop is almost never simply executed: it often exists in a computational context that furnishes it with information like the current time and external interactions via transports like MIDI or OSC. So, if the resultant control-rate data or sample buffer is $s$ and the loop's context is a functor $f$, then we have $w (f\,s)$, which is no longer a comonad of $s$ but one of $f\,s$. To resolve this dilemma, we introduce the \textit{cofree comonad}.
+Event loops have an additional unique property that is not captured by comonads - for any one iteration, they are \textit{functorial} in nature. That is, the loop is almost never simply executed: it often exists in a computational context that furnishes it with information like the current time and external information via transports like MIDI or OSC. So, if the resultant control-rate data or sample buffer is $s$ and the loop's context is a functor $f$, then we have $w (f\,s)$, which is no longer a comonad of $s$ but one of $f\,s$. To resolve this dilemma, we introduce the \textit{cofree comonad}.
 
 \subsection{Cofree comonad}
 
-\textit{Cofree} is a data structure that is parameterized by two types: a functor $f$ and a value $a$. The definition is:
+\texttt{Cofree} is a data structure that is parameterized by two types: a functor \texttt{f} and a value \texttt{a}. The definition is:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 data Cofree f a =
   Cofree a (f (Cofree f a))
 \end{lstlisting}
 
-In languages with strict evaluation, this recursive definition would cause a stack overflow, and in practice, the definition often uses a:
+In languages with strict evaluation, this recursive definition would cause a stack overflow, and in practice, the definition often uses a unitary thunk:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 data Cofree f a =
-  Cofree a (Unit -> f (Cofree f a))
+  Cofree a (Unit (*$\rightarrow$*) f (Cofree f a))
 \end{lstlisting}
 
-The $Cofree$ constructor takes two arguments: a value $a$ and a computational context $f$ in which one can reason about the next $Cofree\,f\,a$. Note that the next $Cofree\,f\,a$ need not actually exist\footnote{For example, a functor $f$ can choose to ignore its argument $a$, as is the case with ie the $Proxy$ functor, \url{https://hackage.haskell.org/package/base-4.16.0.0/docs/Data-Proxy.html}.}) - event loops can enter into failure states for example, but most server-based programs (ie \texttt{scsynth}) are built around the concept of a potentially infinite event loop.
+The \texttt{Cofree} constructor takes two arguments: a value \texttt{a} and a computational context \texttt{f} in which one can reason about the next $Cofree\,f\,a$. Note that the next \texttt{Cofree f a} need not actually exist\footnote{For example, a functor $f$ can choose to ignore its argument $a$, as is the case with ie the $Proxy$ functor, \url{https://hackage.haskell.org/package/base-4.16.0.0/docs/Data-Proxy.html}.} --- event loops can enter into failure states for example, but most server-based programs (ie \texttt{scsynth}) are built around the concept of a potentially infinite event loop.
 
-Cofree is a functor because it has the following instance for $map$:
+Cofree is a functor because it has the following instance for \texttt{map}:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 map f (Cofree a b) =
   Cofree (f a) (map (map f) b)
 \end{lstlisting}
 
-It is a comonad because it has the following instances for $extract$ and $duplicate$:
+It is a comonad because it has the following instances for \texttt{extract} and \texttt{duplicate}:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 extract (Cofree a _) = a
 duplicate c@(Cofree _ b) =
   Cofree c (map duplicate b)
 \end{lstlisting}
 
-Most importantly, $Cofree$ can be unwrapped by returning the second argument:
+Most importantly, \texttt{Cofree} can be ``unwrapped'' by returning the second argument:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
-unwrapCofree :: Cofree f a -> f (Cofree f a)
+\begin{lstlisting}[escapeinside={(*}{*)}]
+unwrapCofree :: Cofree f a (*$\rightarrow$*) f (Cofree f a)
 unwrapCofree (Cofree _ b) = b
 \end{lstlisting}
 
-In an audio rendering engine, for example, this gives us the next iteration of a rendering loop $f\,a$. For example, if $f$ is $Function\,\{ time :: Number \}$, then at each unwrapping of the loop, we ``unlock'' the next step by providing the current time. This is also called the generator pattern in imperative languages like Python.
+In an audio rendering engine, this gives us the next iteration of a rendering loop \texttt{f (Cofree f a)}. For example, if \texttt{f} is \texttt{($\rightarrow$) Time} (where \texttt{Time} is a positive floating-point number), then at each unwrapping of the loop, we ``unlock'' the next step by providing the current time. This is also called the generator pattern in imperative languages like Python and JavaScript, where \texttt{unwrapCofree} is analogous to \texttt{yield} and the \texttt{f} around \texttt{f (Cofree f a)} is discharged with the \texttt{next} function.
 
 \subsection{Revisiting our pseudocode}
 
 Let's revisit our pseudocode through the prism of cofree comonads. We'll reduce the size of the example for brevity:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 type KPT = { time :: Number, kp :: Boolean }
-render :: KPT -> AudioGraph
+render :: KPT (*$\rightarrow$*) AudioGraph
 render { time, kp } =
   (
     if time < 5
@@ -296,12 +299,12 @@ render { time, kp } =
   ) <> (when kp (sinOsc 880))
 \end{lstlisting}
 
-We can rewrite this as a function that yields a cofree comonad which yields an audio graph and an event loop.
+We can rewrite this as a function that yields a cofree comonad. \texttt{extract} provides an audio graph, and \texttt{unwrapCofree} yields the next iteration of an event loop.
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 type KPT = { time :: Number, kp :: Boolean }
-render :: KPT -> Cofree ((->) KPT) AudioGraph
+render :: KPT (*$\rightarrow$*) Cofree (((*$\rightarrow$*)) KPT) AudioGraph
 render { time, kp } =
   Cofree
     (
@@ -314,16 +317,16 @@ render { time, kp } =
     render
 \end{lstlisting}
 
-Here, beacuse the underlying Functor is \texttt{((->) KPT)}=, we can use \texttt{render} recursively in its own definition. So, \texttt{extract} yields our control-rate data whereas \texttt{unwrap\-Cofree} yields the next iteration of the event loop.
+Here, because the underlying Functor is \texttt{(($\leftarrow$) KPT)}=, we can use \texttt{render} recursively in its own definition.
 
-In practice, this also changes the way the event loop is written. When using pure functions, an event loop can be written like so (assuming that one is in an asynchronous effectful monadic context like \texttt{IO} in Haskell or \texttt{Aff} in PureScript).
+In practice, this also changes the way an event loop is written:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 -- with pure functions
 loop = do
-  time <- getTime
-  kp <- ketKp
+  time (*$\leftarrow$*) getTime
+  kp (*$\leftarrow$*) ketKp
   let res = render { time, kp }
   doSomethingWith res
   delay 0.03
@@ -332,8 +335,8 @@ loop = do
 -- with a cofree comonad
 loop =
   let f r = do
-    time <- getTime
-    kp <- ketKp
+    time (*$\leftarrow$*) getTime
+    kp (*$\leftarrow$*) ketKp
     let res = render { time, kp }
     doSomethingWith (extract res)
     delay 0.03
@@ -344,9 +347,9 @@ loop =
 So far, this formulation provides no advantage over a pure function of time. However, things get more interesting when we introduce arbitrary internal states in the definition of our cofree comonad. For example, if we want the sine-wave oscillator to release one second after a keypress ends, there is no way to do this with a pure function of time because there is no retention of state. Cofree comonads, on the other hand, make this trivial.
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 type KPT = { time :: Number, kp :: Boolean }
-render :: KPT -> Cofree ((->) KPT) AudioGraph
+render :: KPT (*$\rightarrow$*) Cofree (((*$\rightarrow$*)) KPT) AudioGraph
 render  =
   let
     f kp_1 t_1 { time, kp } =
@@ -368,82 +371,81 @@ render  =
   in f false (-inf)
 \end{lstlisting}
 
-While this section has showed us how to write an event loop and how to extract krate/arate data from a computation in a functional style, it still has not solved the issue of resource management of stateful audio units. To do this, we will need to introduce the concept of existential quantification and use that to build a indexed type system within a cofree comonad.
+While this section has showed us how to write an event loop and how to extract \texttt{k}-rate/\texttt{a}-rate data from a computation in a functional style, it still has not solved the issue of resource management of stateful audio units. To do this, we will need to introduce the concept of existential quantification and use that to build a indexed type system within a cofree comonad.
 
 \section{Existential quantification}
 \label{sec:existential_quantification}
 
-In the last example from Section \ref{sec:cofree_comonads}, we saw how state can be curried in a cofree comonad's definition to create effects like delayed releases of oscilators and in general any sort of memory cell needed for filtering and delay lines.
+In the last example from Section \ref{sec:cofree_comonads}, we saw how state can be curried in a cofree comonad's definition to create effects like delayed releases of oscillators and in general any sort of memory cell needed for filtering.
 
-This technique of passing an term internally through a computation is called a \textit{closure}. The terms \texttt{t\_1} and \texttt{kp\_1} were \textit{lexically closed} within the environment of the cofree comonad, but were never exposed to the external computation.  This technique comes with one major drawback, however: all functions that operate on the external state need to be defined within the closure, which makes it difficult to operate on the state using external APIs.
+This technique of propagating a term internally through a computation is called a \textit{closure}. The terms \texttt{t\_1} and \texttt{kp\_1} are \textit{lexically closed} within the environment of the cofree comonad, but are never exposed to the external computation.  This technique comes with one major drawback, however: all functions that operate on the internal state need to be defined within the closure, which makes it difficult to operate on the state using external APIs.
 
-To remedy this problem, we can use existential types. We say the type is existentially quanitified, or a coend~\cite{yoneda1960ext}, when a consumer of the type knows only that it exists without knowing what the type is. As an example, the \texttt{Exists} type in PureScript can be used to turn any type constructor $f\,a$ into an existential type $\exists a. f\,a$.
+To remedy this problem, we can use existential types. We say the type is existentially quantified, or a coend~\cite{yoneda1960ext}, when a consumer of the type knows only that it exists without knowing what the type is. As an example, the \texttt{Exists} type in PureScript can be used to turn any type constructor $f\,a$ into an existential type $\exists a. f\,a$.
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
-data StreamF a s = StreamF s (s -> Tuple s a)
+\begin{lstlisting}[escapeinside={(*}{*)}]
+data StreamF a s = StreamF s (s (*$\rightarrow$*) Tuple s a)
 type Stream a = Exists (StreamF a)
 \end{lstlisting}
 
 One can then get into and out of the existential type using the following two functions:
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
-mkExists :: forall a f. f a -> Exists f
+\begin{lstlisting}[escapeinside={(*}{*)}]
+mkExists :: forall a f. f a (*$\rightarrow$*) Exists f
 runExists
   :: forall r f
-  . (forall a. f a -> r)
-  -> Exists f
-  -> r
+  . (forall a. f a (*$\rightarrow$*) r)
+  (*$\rightarrow$*) Exists f
+  (*$\rightarrow$*) r
 \end{lstlisting}
 
-A useful way to think about existential types is in terms of epistemic certainty. If a universally quantified definition is true ``for all'' types (this is the norm in functional programming languages, for example the $identity$ function is defined as $\forall a. a \rightarrow a$), then it is a tautology. On the other hand, existential types are the weakest epistomological claim one can make: they assert that something exists without knowing anything about it.
+A useful way to think about existential types is in terms of epistemic certainty. If a universally quantified definition is true ``for all'' types (this is the norm in functional programming languages, for example the $identity$ function is defined as $\forall a. a \rightarrow a$), then it is a tautology. On the other hand, existential types are the weakest epistemological claim one can make: they assert that something exists without knowing anything about it.
 
-We can use existential types to transform the closure from our previous render loop into an API that exposes the internal state to external consumers. This new type is called \texttt{WithCtrl}, and existential types are used to transform it into a cofree comonad that the rendering loop understands.
+We can use existential types to transform the closure from our previous render loop into an API that exposes an internal state as type \texttt{c} to external consumers. This new type is called \texttt{WithCtrl}, and existential types are used to transform it into a cofree comonad that the rendering loop understands.
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 type WithCtrl f a c = Cofree f (a /\ c)
 type Ex f a = Exists (WithCtrl f a)
 type KPT = { time :: Number, kp :: Boolean }
 render
   :: KPT
-  -> WithCtrl ((->) KPT) AudioGraph KPT
+  (*$\rightarrow$*) WithCtrl (((*$\rightarrow$*)) KPT) AudioGraph KPT
 render  =
   let
-    f n t =
-      Cofree
-        (
-          ((
-            if n.time < 5
-            then sinOsc (n.time * 220)
-            else highpass (playBuf "hi")
-          ) <>
-          (when (n.kp || n.time < t.time + 1)
-                (sinOsc 880))) /\ t
-        )
-        (
-          render n.kp
-            (if t.kp && not n.kp
-                then n.time else t.time)
-        )
+    f n t = Cofree
+      (
+        ((
+          if n.time < 5
+          then sinOsc (n.time * 220)
+          else highpass (playBuf "hi")
+        ) <>
+        (when (n.kp || n.time < t.time + 1)
+              (sinOsc 880))) /\ t
+      )
+      (
+        render n.kp
+          (if t.kp && not n.kp
+              then n.time else t.time)
+      )
   in f false (-inf)
 
-asEx :: KPT -> E ((->) KPT) AudioGraph
+asEx :: KPT (*$\rightarrow$*) E (((*$\rightarrow$*)) KPT) AudioGraph
 asEx = mkExists <<< render
 
 unEx
-  :: E ((->) KPT) AudioGraph
-  -> Cofree ((->) KPT) AudioGraph
+  :: E (((*$\rightarrow$*)) KPT) AudioGraph
+  (*$\rightarrow$*) Cofree (((*$\rightarrow$*)) KPT) AudioGraph
 unEx = runExists (map fst)
 \end{lstlisting}
 
-Where closures and existential types shine in recursively defined data structures like cofree comonads is their ability to change over the lifetime of a loop at compile time. This significantly improves runtime performance (no pattern matching) and makes it easier to reason about programs, as non-sensical data (ie a filter's \texttt{q} value being passed to a sine wave oscillator) is prohibited at the type level. It is also a necessary stepping stone to indexed types, which is the crux of our resource-management strategy in Section \ref{sec:existential_quantification}.
+Closures and existential types are particularly useful in recursive definitions, like those of cofree comonads, because of their ability to change their internal type over the lifetime of a looping control structure. For example, a state can be a \texttt{Number} followed by a \texttt{Boolean} followed by a \texttt{String} over the course of a computation instead of a union \texttt{Number | Boolean | String}. This significantly improves runtime performance (no pattern matching) and makes it easier to reason about programs, as non-sensical data (ie a filter's \texttt{q} value being passed to a sine wave oscillator) is prohibited at the type level. It is also a necessary stepping stone to indexed types, which is the crux of our resource-management strategy in Section \ref{sec:existential_quantification}.
 
 As a motivating example, let's use a render function that switches from an oscillator and a filtered sound at the five-second mark. The behavior of the oscillator and of the filtered sound change irreversibly once a key is pressed. As a first pass, we'll use closures to implement this behavior.
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
+\begin{lstlisting}[escapeinside={(*}{*)}]
 renderHP kp_1 fq { kp } =
   let
     isKp = kp_1 || kp
@@ -467,104 +469,162 @@ renderS kp_1 f { time, kp } =
 render = renderS false {f: 440}
 \end{lstlisting}
 
-The types of the two internal states, \texttt{fq} and \texttt{f}, are different: one (used in \texttt{renderS}) contains frequency information for an oscillator whereas the other (used in \texttt{renderHP}) contains frequency and q values for a filter. And yet, they can be used inside the closure with no runtime penalty (ie no pattern matching on a union) and no danger of accidentally passing information for the filter to the oscillator or vice versa.
+The types of the two internal states, \texttt{fq} and \texttt{f}, are different: one (used in \texttt{renderS}) contains frequency information for an oscillator whereas the other (used in \texttt{renderHP}) contains frequency and q values for a filter. And yet, they can be used inside the closure with no runtime penalty (no pattern matching) and no danger of accidentally passing information for the filter to the oscillator or vice versa.
 
-It's possible to pass from closures to existential types by using the continuation passing pattern~\cite{sussman14ai}, whereby the control flow of a function (in our case, the loop) is yielded to a continuation. We'll use a slightly different formulation, dispensing with the \texttt{Exists} type for brevity while retaining the same technique of hiding an internal type parameter \texttt{c} using an existential type.\footnote{Note that, in this example, lazy evaluation is assumed. In strict languages, it causes a stack overflow and the construction of the cofree comonad would need to be deferred.}
+It is possible to pass from closures to existential types by using the continuation passing pattern~\cite{sussman14ai}, whereby the control flow of a function (in our case, the loop) is yielded to a continuation. In the following example, for the sake of brevity, we will use monomorphic versions of the full type called \texttt{F} and of the existential type called \texttt{S}. The \texttt{AudioGraph} type is renamed \texttt{A}, and our continuation passing function is called \texttt{cp}.\footnote{Note that, in this example, lazy evaluation is assumed. In strict languages, it causes a stack overflow and the construction of the cofree comonad would need to be deferred.}
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
-flip f a b = f b a
-type Intern f a c = Cofree f (a /\ c)
-type Extern f a = Cofree f a
+\begin{lstlisting}[escapeinside={(*}{*)}]
+type C = {t :: Number, kp :: Boolean }
+data E a b = L a | R b
+data M a = J a | N
+data U = U
+-- F a is our type that will be existentially
+-- quantified
+data F a = F A a
+-- S is our existential type that will erase
+-- an a from (F a), leaving just the A term
+data S = S (C (*$\rightarrow$*) Tuple A S)
 
-cp a b = map (map fst) (b a)
+-- continuation passing instead of a direct
+-- cofree comonad constructor
+cp
+  :: (C (*$\rightarrow$*) E S (F a))
+  (*$\rightarrow$*) (F a (*$\rightarrow$*) S)
+  (*$\rightarrow$*) Scene S
+cp m t = S go
+  go time = case m time of
+    L s (*$\rightarrow$*) (\(S x) (*$\rightarrow$*) x) s env
+    S f@(F c a) (*$\rightarrow$*)
+      Tuple a (t f)
 
-renderHP kp_1 fq { kp } =
-  let
-    isKp = kp_1 || kp
-    f = fq.f + (isKp ? 0 : 1000)
-    q = fq.q + (isKp ? 0 : 40)
-  in Cofree
-    (highpass {f: f, q: q } (playBuf "hi"))
-    ( render isKp fq) /\ fq
+branch
+  :: (F a (*$\rightarrow$*) C (*$\rightarrow$*) E S (F a))
+  (*$\rightarrow$*) F a
+  (*$\rightarrow$*) S
+branch fa w = cp (fa w) (branch fa)
 
-renderS kp_1 f { kp } =
-  let
-    isKp = kp_1 || kp
-    f = f.f + (isKp ? 0 : 200)
-  in Cofree
-    (sinOsc {f: f})
-    (renderS isKp fq) /\ f
+freeze :: F a (*$\rightarrow$*) S
+freeze s = cp (\_ (*$\rightarrow$*) R s) freeze
+
+-- our internal type will be the onset of
+-- the keypress
+frame0 { t, kp } =
+  F (sinOsc 440.0) (kp ? J t : N))
+
+loop (J t0) { t, kp } =
+  F (sinOsc 440.0 + (t - t0)) (J t0)
+loop N c = frame0 c
+
+rest = highpass (playBuf "hi") /\ U
 
 render =
-  let z i a =
-    if i.time > 5
-    then f a z
-    else
-      cp
-        (renderHP kp_1 {f:900,q:1} {time,kp})
-        (flip cp)
-  let f x = cp x z
-  in f (renderS false {f: 440})
+  cp
+    frame0
+    (branch \(F _ a) c
+        if t < 5
+        then R (loop a c)
+        else L (freeze rest)
 \end{lstlisting}
 
-Now, it is possible to define functions that interact directly with the data types yielded by \texttt{renderHP} and \texttt{renderS}, both of which expose their internal state. Furthermore, we have abstracted time management outside of the definition of \texttt{renderS} to the toplevel \texttt{render} function, allowing the delegation of temporal branching to different control structures. The function \texttt{cp} takes care of the type erasure from \texttt{Intern} to \texttt{Extern} in the same way that \texttt{Exists} erases a type.
+Now, it is possible to define functions that interact directly with the \texttt{F a} contained by \texttt{frame0}, \texttt{loop} and \texttt{rest}, all of which contain an internal state --- \texttt{M C} in the case of \texttt{frame0} and \texttt{loop}, \texttt{U} in the case of \texttt{rest}. For example, to override the internal state of \texttt{frame0} to always be \texttt{N}, we could write \texttt{frameN = (map (\\(F c \_) $\rightarrow$ F c N) frame0)}.
 
-Recasting type-level changes of internal states from closures to existential types does more than allow us to write APIs for interacting with an internal state. It also the crucial step that allows us to reason about resource management, as we will see in the next section on indexed types.
+Furthermore, we have abstracted time management to the top-level \texttt{render} function, separating temporal branching from the definition of audio behavior. The function \texttt{cp} takes care of the type erasure from \texttt{F a} to \texttt{S} in the same way that \texttt{Exists} erases a type.
+
+As we saw with the \texttt{frameN} example above, existential types can be used both to model the type-level morphology of internal states and to write APIs for interacting with these states. It also the crucial step that allows us to reason about resource management, as we will see in the next section on indexed types.
 
 \section{Indexed types}
 \label{sec:indexed_types}
 
-If we take a closer look at the interaction between \texttt{Intern f a c} and \texttt{Extern f a}, we see that it erases a single type --- the internal state \texttt{c} of the cofree comonad. This erasure also happens at the term level --- we drop \texttt{c} from the final cofree comonad. If we didn't drop this term, we would lose the ability to vary \texttt{c} as a function of time, as we saw in examples from Section \ref{sec:existential_quantification}.
+Let's take a closer look at the definitions of \texttt{F a} and \texttt{S} from the previous example. To create \texttt{S}, we drop both the internal type \texttt{a} \textit{and} the term of type \texttt{a}. Instead, we propagate both the term and the type through the computation, allowing it to change as the computation progresses.
 
-Nothing stops us from erasing multiple types, however, nor do all of the types have to appear in the corresponding terms. For example, we could have defined intern as {type Intern f i o a c = Cofree f (a /\ c)}. Here, \texttt{i} and \texttt{o} are phantom types: in addition to being erased, they have no representation at the term level in the cofree comonad. Instead, we can use types like these to track aspects of our program at compile time. This is called a ``zero-cost abstraction'': it is an abstraction that offloads complexity entirely to the compiler and is erased at the term level, or otherwise stated, there is no runtime penalty.
+Nothing stops us from erasing multiple types, nor do all of the types have to appear in the corresponding terms. For example, we could have defined \texttt{F} as \texttt{data F i a = F A a}. Here, \texttt{i} is a phantom type: in addition to being erased in \texttt{S}, it has no representation at the term level \texttt{F}. We can use types like these to track aspects of our program at compile time. This is called a ``zero-cost abstraction'': it is an abstraction that offloads computationally expensive algorithms like graph traversals to the compiler. At runtime, there is no performance penalty.
 
-When phantom types are used in this way, we call them \textit{indexed types}. The term index is used similarly as in set theory, where a collection (in this case a collection of control-rate values for an audio graph) is indexed by a set (in this case, the audio graph).
+When phantom types are used in this way, we call them \textit{indexed types}. Indexed types are the key to managing the allocation of resources of an audio graph using cofree comonads. Changes in indices represent changes in the underlying audio graph. For example, if index $i_0$ is \texttt{SinOsc} and index $i_1$ is \texttt {Highpass (PlayBuf)}, the compiler knows that it will have to emit instructions to destroy a sine wave oscillator and create a playable buffer linked to a highpass filter.
 
-Indexed types are the key to managing the allocation of resources of an audio graph using cofree comonads. Changes in indices represent changes in the underlying audio graph. For example, if index $i_0$ is \texttt{SinOsc} and index $i_1$ is \texttt {Highpass (PlayBuf)}, the compiler knows that it will ahve to destroy a sine wave oscillator and create a playable buffer linked to a highpass filter.
-
-Because types $i_0,i_1,...,i_n,...$ are potentially different at each iteration of the rendering loop, they cannot appear in the type of the final cofree comonad \texttt{Cofree f a}. Instead, they must be erased via existential quantification using the same techniques we used in the previous section.
-
-Let's see this technique applied to the same example above where a sine-wave oscillator changes to a filtered buffer. For brevity, we will not include the function definitions - just the function signatures that are used. For several examples of function definitions that accomplish this, one may consult the example folder of the \texttt{purescript-wags} project\footnote{\url{https://github.com/mikesol/purescript-wags/tree/main/examples/kitchen-sink}}.
+Let's see this technique applied to the same example above where a sine-wave oscillator changes to a filtered buffer.
 
 \lstset{language=Haskell, style=psstyle}
-\begin{lstlisting}
-type KPT = { time :: Number, kp :: Boolean }
-flip f a b = f b a
-type Intern f a i c = ...
-type Extern f a = ...
-type F = { f :: Number }
-type Fq = { f :: Number, q :: Number }
-type IKPT = Intern ((->) KPT)
-trans0
-  :: IKPT AudioGraph F EmptyGraph
-  -> IKPT AudioGraph F SinOsc
-trans1
-  :: IKPT AudioGraph F SinOsc
-  -> IKPT AudioGraph F SinOsc
-trans2
-  :: IKPT AudioGraph F SinOsc
-  -> IKPT AudioGraph Fq (HighPass (PlayBuf))
-trans3
-  :: IKPT AudioGraph Fq (HighPass (PlayBuf))
-  -> IKPT AudioGraph Fq (HighPass (PlayBuf))
+\begin{lstlisting}[escapeinside={(*}{*)}]
+type C = {t :: Number, kp :: Boolean }
+data E a b = L a | R b
+data M a = J a | N
+data U = U
+data F i a = F A a
+data S = S (C (*$\rightarrow$*) Tuple A S)
+
+eg2s :: F EmptyGraph a (*$\rightarrow$*) F SinOsc a
+eg2s = unsafeCoerce
+
+s2s :: F SinOsc a (*$\rightarrow$*) F SinOsc a
+s2s = unsafeCoerce
+
+s2h :: F SinOsc a (*$\rightarrow$*) F (HighPass (PlayBuf)) a
+s2h = unsafeCoerce
+
+h2h
+  :: F SinOsc a
+  (*$\rightarrow$*) F (HighPass (PlayBuf)) a
+h2h = unsafeCoerce
+
+cp
+  :: (C (*$\rightarrow$*) E S (F a))
+  (*$\rightarrow$*) (F a (*$\rightarrow$*) S)
+  (*$\rightarrow$*) Scene S
+cp m t = S go
+  go time = case m time of
+    L s (*$\rightarrow$*) (\(S x) (*$\rightarrow$*) x) s env
+    S f@(F c a) (*$\rightarrow$*)
+      Tuple a (t f)
+
+branch
+  :: (F a (*$\rightarrow$*) C (*$\rightarrow$*) E S (F a))
+  (*$\rightarrow$*) F a
+  (*$\rightarrow$*) S
+branch fa w = cp (fa w) (branch fa)
+
+freeze :: F a (*$\rightarrow$*) S
+freeze s = cp (\_ (*$\rightarrow$*) R s) freeze
+
+frame0 { t, kp } =
+  e2s $ F (sinOsc 440.0) (kp ? J t : N))
+
+loop (J t0) { t, kp } =
+  s2s $ F (sinOsc 440.0 + (t - t0)) (J t0)
+loop N c = s2s $ frame0 c
+
+rest = highpass (playBuf "hi") /\ U
+
+render =
+  cp
+    frame0
+    (branch \(F _ a) c
+        if t < 5
+        then R (loop a c)
+        else
+          L
+          $ cp
+            (\_ (*$\rightarrow$*) s2h rest)
+            (\_ (*$\rightarrow$*) freeze (h2h rest))
 \end{lstlisting}
 
 This example is more complex in that there are four transitions between indexed states:
 \begin{enumerate}
-  \item At time 0, a transition from the empty graph to a sine-wave oscillator.
-  \item At all remaining times until five seconds, a noop.
-  \item At the five-second mark, transition from a sine-wave oscillator to a filtered buffer.
-  \item From here until the audio is shut off, a noop.
+  \item At time 0, a transition from the empty graph to a sine-wave oscillator (\texttt{e2s}).
+  \item At all remaining times until five seconds, a sine-wave oscillator to itself, meaning a no-op (\texttt{s2s}).
+  \item At the five-second mark, transition from a sine-wave oscillator to a filtered buffer (\texttt{s2h}).
+  \item From here until the audio is shut off (\texttt{h2h}).
 \end{enumerate}
 
-These transitions are tracked entirely at compile-time, which speeds up audio rendering substantially in that there is no need to track changes in the potentially-very-large audio graph at runtime. Instead, the only changes that need to be propagated to the graph are new control values, which requires no diff between graphs.
+On the term level, these transitions are no-ops that are tracked entirely at compile-time, which speeds up audio rendering. Instead, the only changes that need to be propagated to the graph are new control values, which requires no diffing between graphs.  Furthermore, the use of control structures like \texttt{sinOsc} and \texttt{playBuf} can be verified against their type-level counterparts so that control data for an oscillator is never allowable when an oscillator is not in the type-level graph, etc.
+
+ For several examples of this technique being used in actual audio computations, one may consult the example folder of the \texttt{purescript-wags} project\footnote{\url{https://github.com/mikesol/purescript-wags/tree/main/examples/kitchen-sink}}.
 
 Before looking at benchmarks in the next section, let's revisit the path to indexed types to show how the allocation of audio resources can be tracked by indices in a purely functional setting.
 
 \begin{enumerate}
-  \item Instead of repeatedly calling a pure function of time, rendering loops can unfold a cofree comonad that yields functions of time at each iteration.
-  \item Cofree comonads can have changing internal states, and these internal states can be represented at the typelevel as complex types that are transformed into simpler cofree comonads via existential quantification.
+  \item Instead of repeatedly calling a pure function of time, rendering loops can unfold a cofree comonad that yields functions of time at each iteration. This is also called a Moore machine.
+  \item Cofree comonads can have changing internal states, and these states can be represented at the type-level as multivariate type constructors that are transformed into cofree comonads via existential quantification.
   \item One of these existentially-eliminated types can be an index that tracks the current state of the audio graph. The compiler, as it tracks the evolution of this type, can emit efficient instructions for graph manipulations at compile-time, eliminating the need for runtime graph traversals.
 \end{enumerate}
 
@@ -574,10 +634,10 @@ Before looking at benchmarks in the next section, let's revisit the path to inde
 To illustrate the runtime benefits of this approach, the following test was run.
 
 \begin{enumerate}
-  \item An audio graph with 61 units - 1 speaker, 30 gain controls and 30 sine-wave oscillators, was created twice in web audio using Google Chrome. Both versions model an audio graph as a pure function of time.\footnote{The function can be seen at the following URL: \url{https://github.com/mikesol/purescript\-wags/blob/b6930c5aab6ec5f04f7d8d07231a04b12f70388e/examples/smc2022/SMC2022.purs\#L39}.}
+  \item An audio graph with 61 units - 1 speaker, 30 gain controls and 30 sine-wave oscillators, was created twice using the Google Chrome implementation of the Web Audio API. Both versions model an audio graph as a pure function of time.\footnote{The function can be seen at the following URL: \url{https://github.com/mikesol/purescript-wags/blob/b6930c5aab6ec5f04f7d8d07231a04b12f70388e/examples/smc2022/SMC2022.purs\#L39}.}
   \begin{enumerate}[label*=\arabic*.]
-    \item The first version\footnote{See this url: \url{https://github.com/mikesol/purescript\-wags/blob/b6930c5aab6ec5f04f7d8d07231a04b12f70388e/examples/smc2022/SMC2022.purs\#L74}.} uses the zero-cost abstraction described in this paper.
-    \item The second version uses a runtime graph traversal to detect changes in the graph.
+    \item The first version\footnote{See this url: \url{https://github.com/mikesol/purescript-wags/blob/b6930c5aab6ec5f04f7d8d07231a04b12f70388e/examples/smc2022/SMC2022.purs\#L74}.} uses the zero-cost abstraction described in this paper.
+    \item The second version\footnote{See this url: \url{https://github.com/mikesol/purescript-wags/blob/b6930c5aab6ec5f04f7d8d07231a04b12f70388e/examples/smc2022/SMC2022.purs\#L77}.} uses a runtime graph traversal to detect changes in the graph.
   \end{enumerate}
   \item Approximately ten seconds of audio was rendered using the both versions.
   \item The results are as follows:
@@ -604,7 +664,7 @@ This shows that, for a moderately complex audio graph, the zero-cost abstraction
 
 \section{Conclusion}
 
-As functionalal audio programming becomes more ubiquitous and as large media houses like Epic Games\footnote{See \url{https://discourse.haskell.org/t/an-epic-future-for-spj/3573}} turn to functional programming to power parts of their rendering pipelines, the need for efficient representations of purely functional audio graphs becomes increasingly important. This paper presents a zero-cost abstraction for managing audio graph resources by using existential typing to erase indexed representations of audio graphs in a cofree comonad. The resulting algorithm was able to outperform a runtime graph traversal by a factor of 22 on a moderately complex graph. While the algorithm was presented in Haskell-family pseudocode, the technique can be applied to any language that can perform typelevel functions on partially-applied types, as \texttt{Exists} does in this paper. This includes Scala, F\#, PureScript, Agda and Idris. By following this method, artists can benefit from the conceptual elegance and power of the functional style while enjoying the fast runtime traditionally associated with imperative languages.
+As functional audio programming becomes more ubiquitous and as large media houses like Epic Games\footnote{See \url{https://discourse.haskell.org/t/an-epic-future-for-spj/3573}} turn to functional programming to power parts of their rendering pipelines, the need for efficient representations of purely functional audio graphs becomes increasingly important. This paper presents a zero-cost abstraction for managing audio units by using existential typing to erase indexed representations of audio graphs in a cofree comonad. The resulting algorithm was able to outperform a runtime graph traversal by a factor of 22 on a moderately complex graph. While the algorithm was presented in Haskell-family pseudocode, the technique can be applied to any language that can perform type-level functions on partially-applied types, as \texttt{Exists} does in this paper (Scala, F\#, PureScript, Agda, and Idris all have this feature, for example). By following this method, artists can benefit from the conceptual elegance and power of the functional style while enjoying the fast runtime behavior traditionally associated with imperative languages.
 
 \label{sec:conclusion}
 
